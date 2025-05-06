@@ -1,4 +1,4 @@
-// Redesign: Use custom MeasurementSelect for readable, searchable measurement selection. All UI lowercase. Fix mutation error by passing mutationFn to useMutation.
+// Updated /compare page for sepia theme: minimal, sepia palette, monospaced font, no colored accents.
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -151,12 +151,12 @@ export default function ComparePage() {
   });
 
   return (
-    <div className="min-h-screen w-full bg-black text-white font-mono text-base">
+    <div className="min-h-screen w-full bg-transparent text-[#3b2f1c] font-mono text-base">
       <div className="flex flex-col md:flex-row w-full max-w-7xl mx-auto">
         {/* Left info panel */}
-        <aside className="w-full md:w-1/3 p-6 border-r-4 border-black flex flex-col gap-8 min-h-screen justify-start" style={{background: '#111'}}>
+        <aside className="w-full md:w-1/3 p-6 border-r-4 border-[#bfae8e] flex flex-col gap-8 min-h-screen justify-start" style={{background: '#f4ecd8'}}>
           <h2 className="text-2xl font-bold uppercase mb-4 tracking-widest">input measurements</h2>
-          <div className="text-white text-base mb-6 whitespace-pre-line">
+          <div className="text-[#3b2f1c] text-base mb-6 whitespace-pre-line">
             make sure you have the spelling right, if you mispell something the chart won't show.
             
             tip: always click on the drop down of the measurement you want to use, that way you can guarantee that it is spelled right.
@@ -164,12 +164,12 @@ export default function ComparePage() {
           <div className="flex flex-col gap-2">
             <label className="uppercase">dataset</label>
             <select
-              className="border-2 border-black bg-black text-white px-3 py-2 focus:outline-none"
+              className="border-2 border-[#bfae8e] bg-transparent text-[#3b2f1c] px-3 py-2 focus:outline-none"
               value={dataset}
               onChange={(e) => setDataset(e.target.value)}
             >
               {DATASETS.map((d) => (
-                <option key={d.value} value={d.value} className="bg-black text-white">
+                <option key={d.value} value={d.value} className="bg-transparent text-[#3b2f1c]">
                   {d.label}
                 </option>
               ))}
@@ -180,7 +180,7 @@ export default function ComparePage() {
               type="button"
               variant="secondary"
               onClick={() => append(defaultProfile(columns))}
-              className="border-2 border-black bg-black text-white uppercase"
+              className="border-2 border-[#bfae8e] bg-transparent text-[#3b2f1c] uppercase"
             >
               add profile
             </Button>
@@ -188,12 +188,12 @@ export default function ComparePage() {
               type="button"
               variant="ghost"
               onClick={() => reset({ dataset, profiles: [defaultProfile(columns)] })}
-              className="border-2 border-black bg-black text-white uppercase"
+              className="border-2 border-[#bfae8e] bg-transparent text-[#3b2f1c] uppercase"
             >
               reset
             </Button>
           </div>
-          {columnError && <div className="text-red-600 font-mono uppercase border-2 border-black p-2 mt-4">{columnError}</div>}
+          {columnError && <div className="text-red-600 font-mono uppercase border-2 border-[#bfae8e] p-2 mt-4">{columnError}</div>}
         </aside>
         {/* Main content: form, graph, results */}
         <main className="flex-1 p-6 flex flex-col gap-8 min-h-screen">
@@ -202,20 +202,20 @@ export default function ComparePage() {
             className="space-y-8"
           >
             {profileFields.map((profile, pIdx) => (
-              <div key={profile.id} className="border-2 border-black p-4 mb-4 bg-black">
+              <div key={profile.id} className="border-2 border-[#bfae8e] p-4 mb-4 bg-transparent">
                 <div className="flex gap-2 items-end mb-2">
                   <Controller
                     control={control as Control<FormShape>}
                     name={`profiles.${pIdx}.label` as const}
                     render={({ field }) => (
-                      <Input {...field} placeholder="label" className="w-40 font-mono lowercase border-2 border-black bg-black text-white" />
+                      <Input {...field} placeholder="label" className="w-40 font-mono lowercase border-2 border-[#bfae8e] bg-transparent text-[#3b2f1c]" />
                     )}
                   />
                   <Button
                     type="button"
                     variant="destructive"
                     onClick={() => remove(pIdx)}
-                    className="ml-2 border-2 border-black bg-black text-white lowercase"
+                    className="ml-2 border-2 border-[#bfae8e] bg-transparent text-[#3b2f1c] lowercase"
                     disabled={profileFields.length === 1}
                   >
                     remove
@@ -244,7 +244,7 @@ export default function ComparePage() {
                             {...field}
                             type="number"
                             placeholder="value"
-                            className="w-28 font-mono lowercase border-2 border-black bg-black text-white"
+                            className="w-28 font-mono lowercase border-2 border-[#bfae8e] bg-transparent text-[#3b2f1c]"
                           />
                         )}
                       />
@@ -252,7 +252,7 @@ export default function ComparePage() {
                         type="button"
                         variant="ghost"
                         onClick={() => removeMetric(pIdx, mIdx)}
-                        className="ml-1 border-2 border-black bg-black text-white lowercase"
+                        className="ml-1 border-2 border-[#bfae8e] bg-transparent text-[#3b2f1c] lowercase"
                         disabled={watch(`profiles.${pIdx}.metrics`).length <= 2}
                       >
                         remove
@@ -263,7 +263,7 @@ export default function ComparePage() {
                     type="button"
                     variant="secondary"
                     onClick={() => addMetric(pIdx)}
-                    className="mt-2 w-fit border-2 border-black bg-black text-white lowercase"
+                    className="mt-2 w-fit border-2 border-[#bfae8e] bg-transparent text-[#3b2f1c] lowercase"
                     disabled={watch(`profiles.${pIdx}.metrics`).length >= columns.length}
                   >
                     add measurement
@@ -271,28 +271,28 @@ export default function ComparePage() {
                 </div>
               </div>
             ))}
-            <Button type="submit" disabled={mutation.isPending} className="border-2 border-black bg-black text-white lowercase w-full py-3 text-lg">
+            <Button type="submit" disabled={mutation.isPending} className="border-2 border-[#bfae8e] bg-transparent text-[#3b2f1c] lowercase w-full py-3 text-lg">
               {mutation.isPending ? "comparing…" : "compare"}
             </Button>
           </form>
           {mutation.isSuccess && mutation.data && (
             <div className="flex flex-col md:flex-row gap-8 mt-10">
               {/* Graph/scale area */}
-              <div className="flex-1 flex flex-col items-center border-4 border-black bg-black p-4 shadow-[8px_8px_0_0_#000]">
+              <div className="flex-1 flex flex-col items-center border-4 border-[#bfae8e] bg-transparent p-4 shadow-[8px_8px_0_0_#000]">
                 {(mutation.data.scatter_png || mutation.data.hist_png) ? (
                   <>
                     {mutation.data.scatter_png && (
                       <img
                         src={`data:image/png;base64,${mutation.data.scatter_png}`}
                         alt="scatter plot"
-                        className="rounded border-4 border-black shadow-[8px_8px_0_0_#000] max-w-full mb-6"
+                        className="rounded border-4 border-[#bfae8e] shadow-[8px_8px_0_0_#000] max-w-full mb-6"
                       />
                     )}
                     {mutation.data.hist_png && (
                       <img
                         src={`data:image/png;base64,${mutation.data.hist_png}`}
                         alt="histogram"
-                        className="rounded border-4 border-black shadow-[8px_8px_0_0_#000] max-w-full"
+                        className="rounded border-4 border-[#bfae8e] shadow-[8px_8px_0_0_#000] max-w-full"
                       />
                     )}
                   </>
@@ -302,45 +302,45 @@ export default function ComparePage() {
                 {/* Male-female scale (visual axis) */}
                 <div className="w-full flex items-center justify-between mt-8">
                   <span className="font-mono lowercase text-xs">male</span>
-                  <div className="flex-1 h-2 mx-2 bg-gradient-to-r from-blue-900 via-gray-400 to-pink-900 rounded-full border-2 border-black relative">
+                  <div className="flex-1 h-2 mx-2 bg-gradient-to-r from-blue-900 via-gray-400 to-pink-900 rounded-full border-2 border-[#bfae8e] relative">
                     {/* Optionally, you could add a marker for the user's position here */}
                   </div>
                   <span className="font-mono lowercase text-xs">female</span>
                 </div>
               </div>
               {/* Results table */}
-              <div className="flex-1 overflow-x-auto border-4 border-black bg-black p-4 shadow-[8px_8px_0_0_#000]">
-                <table className="min-w-full text-xs text-left border-4 border-black bg-black text-white">
+              <div className="flex-1 overflow-x-auto border-4 border-[#bfae8e] bg-transparent p-4 shadow-[8px_8px_0_0_#000]">
+                <table className="min-w-full text-xs text-left border-4 border-[#bfae8e] bg-transparent text-[#3b2f1c]">
                   <thead>
                     <tr>
-                      <th className="px-3 py-2 font-mono lowercase border-2 border-black">label</th>
+                      <th className="px-3 py-2 font-mono lowercase border-2 border-[#bfae8e]">label</th>
                       {columns.map((col) => (
-                        <th key={col} className="px-3 py-2 font-mono lowercase border-2 border-black" colSpan={4}>{toReadableLabel(col)}</th>
+                        <th key={col} className="px-3 py-2 font-mono lowercase border-2 border-[#bfae8e]" colSpan={4}>{toReadableLabel(col)}</th>
                       ))}
                     </tr>
                     <tr>
-                      <th className="border-2 border-black"></th>
+                      <th className="border-2 border-[#bfae8e]"></th>
                       {columns.map((col) => [
-                        <th key={col+"-zf"} className="px-2 py-1 font-mono lowercase border-2 border-black">z_female</th>,
-                        <th key={col+"-pf"} className="px-2 py-1 font-mono lowercase border-2 border-black">%_female</th>,
-                        <th key={col+"-zm"} className="px-2 py-1 font-mono lowercase border-2 border-black">z_male</th>,
-                        <th key={col+"-pm"} className="px-2 py-1 font-mono lowercase border-2 border-black">%_male</th>,
+                        <th key={col+"-zf"} className="px-2 py-1 font-mono lowercase border-2 border-[#bfae8e]">z_female</th>,
+                        <th key={col+"-pf"} className="px-2 py-1 font-mono lowercase border-2 border-[#bfae8e]">%_female</th>,
+                        <th key={col+"-zm"} className="px-2 py-1 font-mono lowercase border-2 border-[#bfae8e]">z_male</th>,
+                        <th key={col+"-pm"} className="px-2 py-1 font-mono lowercase border-2 border-[#bfae8e]">%_male</th>,
                       ])}
                     </tr>
                   </thead>
                   <tbody>
                     {mutation.data.results.map((r) => (
-                      <tr key={r.label} className="border-t-4 border-black">
-                        <td className="px-3 py-2 font-mono border-2 border-black bg-black text-white">{r.label}</td>
+                      <tr key={r.label} className="border-t-4 border-[#bfae8e]">
+                        <td className="px-3 py-2 font-mono border-2 border-[#bfae8e] bg-transparent text-[#3b2f1c]">{r.label}</td>
                         {columns.map((col) => {
                           const stat = r.stats[col];
                           return stat ? [
-                            <td key={col+"-zf"} className="px-2 py-1 font-mono border-2 border-black bg-black text-white">{stat.z_female?.toFixed(2)}</td>,
-                            <td key={col+"-pf"} className="px-2 py-1 font-mono border-2 border-black bg-black text-white">{stat.pct_female?.toFixed(2)}</td>,
-                            <td key={col+"-zm"} className="px-2 py-1 font-mono border-2 border-black bg-black text-white">{stat.z_male?.toFixed(2)}</td>,
-                            <td key={col+"-pm"} className="px-2 py-1 font-mono border-2 border-black bg-black text-white">{stat.pct_male?.toFixed(2)}</td>,
+                            <td key={col+"-zf"} className="px-2 py-1 font-mono border-2 border-[#bfae8e] bg-transparent text-[#3b2f1c]">{stat.z_female?.toFixed(2)}</td>,
+                            <td key={col+"-pf"} className="px-2 py-1 font-mono border-2 border-[#bfae8e] bg-transparent text-[#3b2f1c]">{stat.pct_female?.toFixed(2)}</td>,
+                            <td key={col+"-zm"} className="px-2 py-1 font-mono border-2 border-[#bfae8e] bg-transparent text-[#3b2f1c]">{stat.z_male?.toFixed(2)}</td>,
+                            <td key={col+"-pm"} className="px-2 py-1 font-mono border-2 border-[#bfae8e] bg-transparent text-[#3b2f1c]">{stat.pct_male?.toFixed(2)}</td>,
                           ] : [
-                            <td key={col+"-zf"} colSpan={4} className="text-gray-400 text-center font-mono border-2 border-black">—</td>
+                            <td key={col+"-zf"} colSpan={4} className="text-gray-400 text-center font-mono border-2 border-[#bfae8e]">—</td>
                           ];
                         })}
                       </tr>
@@ -351,7 +351,7 @@ export default function ComparePage() {
             </div>
           )}
           {mutation.isError && (
-            <div className="mt-6 text-red-600 font-mono lowercase border-2 border-black p-2 text-center">
+            <div className="mt-6 text-red-600 font-mono lowercase border-2 border-[#bfae8e] p-2 text-center">
               error: {mutation.error.message}
             </div>
           )}

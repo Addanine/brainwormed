@@ -1,4 +1,21 @@
+/* Updated global styles to use sepia theme: background #f4ecd8, text #3b2f1c, font-mono for all pages. */
 @import "tailwindcss";
+
+body, html {
+  background: #f4ecd8 !important;
+  color: #3b2f1c !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --font-sans: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --tw-bg-opacity: 1;
+  --tw-text-opacity: 1;
+}
 
 @theme {
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif,

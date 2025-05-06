@@ -1,8 +1,12 @@
-// Refactored /hormones simulator page: PK model, clinical units, full-page responsive graph, and removed the text below the graph that displayed hormone/ether info.
+// Full UI redux: supports multiple regimens, each with its own hormone/ether, dose, interval, days, and personalized toggle. Redesigned layout with Cards for each regimen, ability to show multiple graphs at once, and a polished, modern UI using reusable components. Now uses a sepia color palette throughout the entire page, the graph area background is #f5ecd8, the graph always fits inside the user's screen, the graph area is no longer visually boxed in, the graph is visually shifted up for better balance, regimen cards are collapsible, and the legend is now in the sidebar to prevent text overlap.
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
 import { Input } from "../../components/ui/input";
+import { Button } from "../../components/ui/button";
+// import { MeasurementSelect } from "../../components/ui/measurement-select"; // Removed
+import { supabase } from "../../utils/supabaseClient";
+import NavBar from "../../components/NavBar";
 
 // Expanded list of ethers for both hormones, with PK defaults
 const ETHERS = [
@@ -25,6 +29,17 @@ const ETHERS = [
   { hormone: "Estradiol", name: "Estradiol Hexahydrobenzoate", halfLife: 11, ka: 0.9, Vd: 70, F: 1 },
 ];
 
+const COLORS = [
+  "#60a5fa", // blue
+  "#f472b6", // pink
+  "#34d399", // green
+  "#fbbf24", // yellow
+  "#a78bfa", // purple
+  "#f87171", // red
+  "#38bdf8", // sky
+  "#facc15", // amber
+];
+
 // PK model: one-compartment, first-order absorption and elimination
 function pkConcentration({ Dose, ka, ke, Vd, F, t }: { Dose: number; ka: number; ke: number; Vd: number; F: number; t: number }) {
   // C(t) = (F * Dose * ka) / (Vd * (ka - ke)) * (e^{-ke t} - e^{-ka t})
@@ -32,14 +47,132 @@ function pkConcentration({ Dose, ka, ke, Vd, F, t }: { Dose: number; ka: number;
   return (F * Dose * ka) / (Vd * (ka - ke)) * (Math.exp(-ke * t) - Math.exp(-ka * t));
 }
 
+type Ether = typeof ETHERS[number];
+type Regimen = {
+  id: string;
+  ether: Ether;
+  dose: number;
+  days: number;
+  repeatInterval?: number;
+  usePersonalized: boolean;
+  personalizedKe: number | null | undefined;
+  loadingPersonalized: boolean;
+};
+
+function defaultRegimen(): Regimen {
+  return {
+    id: Math.random().toString(36).slice(2),
+    ether: ETHERS[0]!,
+    dose: 50,
+    days: 21,
+    usePersonalized: false,
+    personalizedKe: undefined,
+    loadingPersonalized: false,
+  };
+}
+
 export default function HormonesPage() {
-  const [selectedEther, setSelectedEther] = useState<typeof ETHERS[0] | undefined>(ETHERS[0]);
-  const [dose, setDose] = useState(50);
-  const [days, setDays] = useState(21);
-  const [repeatInterval, setRepeatInterval] = useState<number | undefined>(undefined);
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [regimens, setRegimens] = useState<Regimen[]>([defaultRegimen()]);
+  const [isSignedIn, setIsSignedIn] = useState(false);
   const graphContainerRef = useRef<HTMLDivElement>(null);
   const [graphSize, setGraphSize] = useState({ width: 1200, height: 500 });
+  const [expandedRegimenId, setExpandedRegimenId] = useState<string | null>(null);
+
+  // Check auth state on mount
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setIsSignedIn(!!data?.user?.id);
+    });
+  }, []);
+
+  // Fetch personalized ke for each regimen if enabled
+  useEffect(() => {
+    regimens.forEach((reg, idx) => {
+      const ether = reg.ether ?? ETHERS[0];
+      if (!reg.usePersonalized || !isSignedIn) {
+        if (reg.personalizedKe !== undefined || reg.loadingPersonalized) {
+          setRegimens(rs => {
+            if (rs[idx].personalizedKe === undefined && rs[idx].loadingPersonalized === false) return rs;
+            return rs.map((r, i) => i === idx ? { ...r, personalizedKe: undefined, loadingPersonalized: false } : r);
+          });
+        }
+        return;
+      }
+      if (!reg.loadingPersonalized && reg.personalizedKe === undefined) {
+        setRegimens(rs => {
+          if (rs[idx].loadingPersonalized) return rs;
+          return rs.map((r, i) => i === idx ? { ...r, loadingPersonalized: true } : r);
+        });
+        (async () => {
+          const { data: user } = await supabase.auth.getUser();
+          const uuid = user?.user?.id;
+          if (!uuid) {
+            setRegimens(rs => {
+              if (rs[idx].personalizedKe === undefined && rs[idx].loadingPersonalized === false) return rs;
+              return rs.map((r, i) => i === idx ? { ...r, personalizedKe: undefined, loadingPersonalized: false } : r);
+            });
+            return;
+          }
+          const { data: bloodTests, error } = await supabase
+            .from("blood_tests")
+            .select("*")
+            .eq("user_uuid", uuid)
+            .eq("hormone", ether.hormone.toLowerCase());
+          if (error || !bloodTests || bloodTests.length === 0) {
+            setRegimens(rs => {
+              if (rs[idx].personalizedKe === null && rs[idx].loadingPersonalized === false) return rs;
+              return rs.map((r, i) => i === idx ? { ...r, personalizedKe: null, loadingPersonalized: false } : r);
+            });
+            return;
+          }
+          const etherNorm = (str: string) => str.toLowerCase().replace(/^(testosterone|estradiol)\s+/i, "").replace(/\s+/g, "");
+          const selectedEtherNorm = etherNorm(ether.name);
+          let filtered = bloodTests.filter((bt: any) => bt.ether && etherNorm(bt.ether) === selectedEtherNorm);
+          if (filtered.length === 0) filtered = bloodTests;
+          function estimateKe({ value, dose, time_since_injection }: { value: any, dose: any, time_since_injection: any }): number | null {
+            const ka = ether.ka;
+            const Vd = ether.Vd;
+            const F = ether.F;
+            const t = Number(time_since_injection);
+            const Dose = Number(dose);
+            if (!value || !Dose || !t || t <= 0) return null;
+            let observed = Number(value);
+            if (ether.hormone === "Estradiol") {
+              observed = observed / 1000;
+            } else {
+              observed = observed / 100;
+            }
+            let bestKe: number | null = null;
+            let minDiff = Infinity;
+            for (let keTest = 0.01; keTest < 2; keTest += 0.001) {
+              const pred = (F * Dose * ka) / (Vd * (ka - keTest)) * (Math.exp(-keTest * t) - Math.exp(-ka * t));
+              const diff = Math.abs(pred - observed);
+              if (diff < minDiff) {
+                minDiff = diff;
+                bestKe = keTest;
+              }
+            }
+            return bestKe;
+          }
+          const keVals = filtered
+            .map(estimateKe)
+            .filter((k: number | null): k is number => typeof k === "number" && isFinite(k));
+          if (!keVals.length) {
+            setRegimens(rs => {
+              if (rs[idx].personalizedKe === null && rs[idx].loadingPersonalized === false) return rs;
+              return rs.map((r, i) => i === idx ? { ...r, personalizedKe: null, loadingPersonalized: false } : r);
+            });
+            return;
+          }
+          const avgKe = keVals.reduce((a, b) => a + b, 0) / keVals.length;
+          setRegimens(rs => {
+            if (rs[idx].personalizedKe === avgKe && rs[idx].loadingPersonalized === false) return rs;
+            return rs.map((r, i) => i === idx ? { ...r, personalizedKe: avgKe, loadingPersonalized: false } : r);
+          });
+        })();
+      }
+    });
+  }, [regimens, isSignedIn]);
 
   // Responsive graph sizing
   useEffect(() => {
@@ -57,323 +190,417 @@ export default function HormonesPage() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  if (!selectedEther) {
-    return (
-      <div className="min-h-screen w-full bg-black text-white font-mono flex items-center justify-center">
-        <div className="text-xl">No ether selected. Please refresh the page.</div>
-      </div>
-    );
-  }
-
-  // PK params
-  const { halfLife, ka, Vd, F } = selectedEther;
-  const ke = Math.log(2) / halfLife;
-
-  // Calculate plasma concentrations for each day (sum repeated doses)
-  const levels = Array.from({ length: days + 1 }, (_, day) => {
-    let conc = 0;
-    if (repeatInterval && repeatInterval > 0) {
-      for (let d = 0; d <= day; d += repeatInterval) {
-        conc += pkConcentration({ Dose: dose, ka, ke, Vd, F, t: day - d });
+  // Graph data for all regimens
+  type GraphData = {
+    id: string;
+    ether: Ether;
+    color: string;
+    displayLevels: number[];
+    secondaryLevels?: number[];
+    yLabel: string;
+    tooltipUnit: string;
+    secondaryUnit: string;
+    levels: { day: number; conc: number }[];
+    days: number;
+    dose: number;
+  };
+  const allGraphData: GraphData[] = regimens.map((reg, idx) => {
+    const ether = reg.ether ?? ETHERS[0];
+    const halfLife = ether.halfLife;
+    const ka = ether.ka;
+    const Vd = ether.Vd;
+    const F = ether.F;
+    const ke = reg.personalizedKe ?? Math.log(2) / halfLife;
+    const days = reg.days;
+    const dose = reg.dose;
+    const repeatInterval = reg.repeatInterval;
+    const levels = Array.from({ length: days + 1 }, (_, day) => {
+      let conc = 0;
+      if (typeof repeatInterval === 'number' && repeatInterval > 0) {
+        for (let d = 0; d <= day; d += repeatInterval) {
+          conc += pkConcentration({ Dose: dose, ka, ke, Vd, F, t: day - d });
+        }
+      } else {
+        conc = pkConcentration({ Dose: dose, ka, ke, Vd, F, t: day });
       }
+      return { day, conc };
+    });
+    let displayLevels: number[] = [];
+    let yLabel = "";
+    let tooltipUnit = "";
+    let secondaryUnit = "";
+    let secondaryLevels: number[] | undefined = undefined;
+    if (ether.hormone === "Estradiol") {
+      displayLevels = levels.map(l => l.conc * 1000);
+      secondaryLevels = displayLevels.map(pg => pg * 3.67);
+      yLabel = "estradiol (pg/mL)";
+      tooltipUnit = "pg/mL";
+      secondaryUnit = "pmol/L";
     } else {
-      conc = pkConcentration({ Dose: dose, ka, ke, Vd, F, t: day });
+      displayLevels = levels.map(l => l.conc * 100);
+      yLabel = "testosterone (ng/dL)";
+      tooltipUnit = "ng/dL";
     }
-    return { day, conc };
+    return {
+      id: reg.id,
+      ether,
+      color: COLORS[idx % COLORS.length] ?? '#000',
+      displayLevels,
+      secondaryLevels,
+      yLabel,
+      tooltipUnit,
+      secondaryUnit,
+      levels,
+      days,
+      dose,
+    };
   });
 
-  // Convert to clinical units
-  let displayLevels: number[] = [];
-  let yLabel = "";
-  let tooltipUnit = "";
-  let secondaryUnit = "";
-  let secondaryLevels: number[] | undefined = undefined;
-  if (selectedEther.hormone === "Estradiol") {
-    // ng/mL to pg/mL: 1 ng/mL = 1000 pg/mL
-    displayLevels = levels.map(l => l.conc * 1000);
-    secondaryLevels = displayLevels.map(pg => pg * 3.67); // pmol/L
-    yLabel = "estradiol (pg/mL)";
-    tooltipUnit = "pg/mL";
-    secondaryUnit = "pmol/L";
-  } else {
-    // ng/mL to ng/dL: 1 ng/mL = 100 ng/dL
-    displayLevels = levels.map(l => l.conc * 100);
-    yLabel = "testosterone (ng/dL)";
-    tooltipUnit = "ng/dL";
-  }
-  const maxDisplayLevel = Math.max(...displayLevels);
-
-  // Use graphSize for SVG
+  // Find max Y for scaling
+  const maxDisplayLevel = Math.max(...allGraphData.flatMap((g) => g.displayLevels));
   const width = graphSize.width;
   const height = graphSize.height;
   const padding = 70;
   const graphAreaWidth = width - 2 * padding;
   const graphAreaHeight = height - 2 * padding;
-
-  // X/Y scale helpers
-  const getX = (day: number) => padding + (day / days) * graphAreaWidth;
+  const yTicks = 6;
+  const xTicks = Math.max(...regimens.map((r) => r.days), 10);
+  const yTickVals = Array.from({ length: yTicks }, (_, i) => maxDisplayLevel * (1 - i / (yTicks - 1)));
+  const xTickVals = Array.from({ length: 11 }, (_, i) => Math.round((Math.max(...regimens.map((r) => r.days)) * i) / 10));
+  const getX = (day: number, maxDays: number) => padding + (day / maxDays) * graphAreaWidth;
   const getY = (level: number) => padding + graphAreaHeight - (maxDisplayLevel === 0 ? 0 : (level / maxDisplayLevel) * graphAreaHeight);
 
-  // Polyline points for the hormone curve
-  const graphPoints = displayLevels.map((v, i) => `${getX(i)},${getY(v)}`).join(" ");
-
-  // Calculate injection markers if repeatInterval is set
-  let injectionMarkers: { x: number; day: number }[] = [];
-  if (repeatInterval && repeatInterval > 0) {
-    for (let d = 0; d <= days; d += repeatInterval) {
-      injectionMarkers.push({ x: getX(d), day: d });
-    }
-  }
-
-  // Axis ticks
-  const yTicks = 6;
-  const xTicks = Math.min(days, 10);
-  const yTickVals = Array.from({ length: yTicks }, (_, i) => maxDisplayLevel * (1 - i / (yTicks - 1)));
-  const xTickVals = Array.from({ length: xTicks + 1 }, (_, i) => Math.round((days * i) / xTicks));
-
-  // Mouse hover logic
+  // Hover logic for all regimens
+  type HoverState = { day: number; mouseX: number; mouseY: number } | null;
+  const [hover, setHover] = useState<HoverState>(null);
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement, MouseEvent>) {
     const rect = (e.target as SVGSVGElement).getBoundingClientRect();
     const mouseX = e.clientX - rect.left - padding;
     if (mouseX < 0 || mouseX > graphAreaWidth) {
-      setHoverIdx(null);
+      setHover(null);
       return;
     }
-    const day = Math.round((mouseX / graphAreaWidth) * days);
-    setHoverIdx(Math.max(0, Math.min(days, day)));
+    const maxDays = Math.max(...regimens.map((r) => r.days));
+    const day = Math.round((mouseX / graphAreaWidth) * maxDays);
+    setHover({ day, mouseX: e.clientX - rect.left, mouseY: e.clientY - rect.top });
   }
-
   function handleMouseLeave() {
-    setHoverIdx(null);
+    setHover(null);
   }
 
+  // UI
   return (
-    <div className="min-h-screen w-full bg-black text-white font-mono text-base flex flex-row">
-      {/* Sidebar settings */}
-      <aside className="w-full md:w-80 p-6 border-r-4 border-black flex flex-col gap-8 min-h-screen justify-start bg-gray-900" style={{ maxWidth: 350 }}>
-        <h2 className="text-2xl font-bold lowercase mb-4 tracking-widest">settings</h2>
-        <div className="flex flex-col gap-4">
-          <label className="lowercase">hormone + ether</label>
-          <select
-            className="border-2 border-black bg-black text-white px-3 py-2 mb-2"
-            value={selectedEther.name}
-            onChange={e => {
-              const ether = ETHERS.find(et => et.name === e.target.value);
-              setSelectedEther(ether);
-            }}
-          >
-            {ETHERS.map(e => (
-              <option key={e.name} value={e.name}>{e.hormone} — {e.name} (t½ {e.halfLife}d)</option>
-            ))}
-          </select>
-          <label className="lowercase">dose (mg)</label>
-          <Input
-            type="number"
-            value={dose}
-            min={0}
-            placeholder={dose.toString()}
-            onChange={e => setDose(Number(e.target.value))}
-            className="mb-2"
-          />
-          <label className="lowercase">days to simulate</label>
-          <Input
-            type="number"
-            value={days}
-            min={1}
-            max={180}
-            onChange={e => setDays(Number(e.target.value))}
-            className="mb-2"
-          />
-          <label className="lowercase">repeat dosage (days)</label>
-          <Input
-            type="number"
-            value={repeatInterval === undefined ? "" : repeatInterval}
-            min={1}
-            max={60}
-            placeholder="leave blank for single dose"
-            onChange={e => {
-              const val = e.target.value;
-              setRepeatInterval(val === "" ? undefined : Math.max(1, Number(val)));
-            }}
-            className="mb-2"
-          />
-        </div>
-        <div className="text-gray-400 font-mono lowercase mt-6 text-xs">
-          this is a simple exponential decay model. it does not account for absorption delays, metabolism, or individual variation. for educational use only.
-        </div>
-      </aside>
-      {/* Main content: Full-page responsive graph */}
-      <main className="flex-1 flex flex-col items-center justify-center p-0 m-0 h-screen">
-        <h1 className="text-3xl font-bold mb-6 lowercase">hormone injection simulator</h1>
-        <div ref={graphContainerRef} className="flex-1 w-full h-[calc(100vh-5rem)] bg-black border-2 border-black rounded-lg flex flex-col items-center justify-center p-0 m-0" style={{ minHeight: 300 }}>
-          <div className="relative w-full h-full" style={{ height: "100%" }}>
-            <svg
-              width={width}
-              height={height}
-              className="bg-gray-900 rounded"
-              style={{ width: "100%", height: "100%" }}
-              onMouseMove={handleMouseMove}
-              onMouseLeave={handleMouseLeave}
-            >
-              {/* Y axis grid and labels */}
-              {yTickVals.map((y, i) => (
-                <g key={i}>
-                  <line
-                    x1={padding}
-                    y1={getY(y)}
-                    x2={width - padding}
-                    y2={getY(y)}
-                    stroke="#444"
-                    strokeDasharray="2 4"
-                  />
-                  <text
-                    x={padding - 10}
-                    y={getY(y) + 5}
-                    fill="#fff"
-                    fontSize={16}
-                    textAnchor="end"
+    <div className="min-h-screen w-full bg-[#f6ecd9] text-[#3b2f1c] font-mono flex flex-col">
+      <NavBar />
+      <div className="flex flex-col md:flex-row flex-1">
+        {/* Regimen Controls Panel */}
+        <aside className="w-full md:w-96 p-6 border-r border-[#bfae8e] flex flex-col gap-6 min-h-screen bg-[#f3e7c4]">
+          <h2 className="text-2xl font-bold mb-2 tracking-widest">Regimens</h2>
+          {regimens.map((reg, idx) => (
+            <div key={reg.id} className="bg-[#f3e7c4] rounded-lg shadow p-4 mb-2 border border-[#bfae8e] flex flex-col gap-2 relative">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold">Hormone + Ether</span>
+                <button
+                  className="ml-2 text-xl focus:outline-none"
+                  aria-label={expandedRegimenId === reg.id ? 'Collapse' : 'Expand'}
+                  onClick={() => setExpandedRegimenId(expandedRegimenId === reg.id ? null : reg.id)}
+                >
+                  {expandedRegimenId === reg.id ? '▲' : '▼'}
+                </button>
+              </div>
+              {expandedRegimenId === reg.id && (
+                <>
+                  <select
+                    className="border-2 border-[#bfae8e] bg-[#f6ecd9] text-[#3b2f1c] px-3 py-2 mb-2 rounded"
+                    value={reg.ether.name}
+                    onChange={e => {
+                      const ether = ETHERS.find(et => et.name === e.target.value) ?? ETHERS[0];
+                      setRegimens(rs => rs.map((r, i) => i === idx ? { ...r, ether } : r));
+                    }}
                   >
-                    {y.toFixed(0)}
-                  </text>
-                </g>
-              ))}
-              {/* Y axis label */}
-              <text
-                x={padding - 50}
-                y={padding + 10}
-                fill="#fff"
-                fontSize={18}
-                textAnchor="start"
-                transform={`rotate(-90,${padding - 50},${padding + 10})`}
-                style={{ fontWeight: "bold" }}
+                    {ETHERS.map(e => (
+                      <option key={e.name} value={e.name}>{e.hormone} — {e.name} (t½ {e.halfLife}d)</option>
+                    ))}
+                  </select>
+                  <label className="font-semibold">Dose (mg)</label>
+                  <Input
+                    type="number"
+                    value={reg.dose}
+                    min={0}
+                    onChange={e => setRegimens(rs => rs.map((r, i) => i === idx ? { ...r, dose: Number(e.target.value) } : r))}
+                    className="mb-2"
+                  />
+                  <label className="font-semibold">Days to Simulate</label>
+                  <Input
+                    type="number"
+                    value={reg.days}
+                    min={1}
+                    max={180}
+                    onChange={e => setRegimens(rs => rs.map((r, i) => i === idx ? { ...r, days: Number(e.target.value) } : r))}
+                    className="mb-2"
+                  />
+                  <label className="font-semibold">Repeat Dosage (days)</label>
+                  <Input
+                    type="number"
+                    value={reg.repeatInterval === undefined ? "" : reg.repeatInterval}
+                    min={1}
+                    max={60}
+                    placeholder="leave blank for single dose"
+                    onChange={e => {
+                      const val = e.target.value;
+                      setRegimens(rs => rs.map((r, i) => i === idx ? { ...r, repeatInterval: val === "" ? undefined : Math.max(1, Number(val)) } : r));
+                    }}
+                    className="mb-2"
+                  />
+                  {isSignedIn && (
+                    <div className="flex items-center gap-2 mt-2">
+                      <input
+                        type="checkbox"
+                        id={`personalized-${reg.id}`}
+                        checked={reg.usePersonalized}
+                        onChange={e => setRegimens(rs => rs.map((r, i) => i === idx ? { ...r, usePersonalized: e.target.checked } : r))}
+                        className="w-4 h-4 border-gray-400 accent-blue-500"
+                      />
+                      <label htmlFor={`personalized-${reg.id}`} className="text-sm select-none">
+                        Use my blood test data for personalized metabolism
+                      </label>
+                      {reg.usePersonalized && reg.loadingPersonalized && (
+                        <span className="ml-2 text-xs text-blue-500">calculating…</span>
+                      )}
+                      {reg.usePersonalized && !reg.loadingPersonalized && reg.personalizedKe !== undefined && reg.personalizedKe !== null && (
+                        <span className="ml-2 text-xs text-blue-500">personalized t½: {(Math.log(2)/reg.personalizedKe).toFixed(2)}d</span>
+                      )}
+                      {reg.usePersonalized && !reg.loadingPersonalized && reg.personalizedKe === null && (
+                        <span className="ml-2 text-xs text-red-700">no usable blood test data</span>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          ))}
+          <Button variant="secondary" onClick={() => {
+            const newRegimen = defaultRegimen();
+            setRegimens(rs => [...rs, newRegimen]);
+            setExpandedRegimenId(newRegimen.id);
+          }}>
+            + Add Regimen
+          </Button>
+          <div className="text-gray-400 font-mono mt-6 text-xs">
+            This is a simple exponential decay model. It does not account for absorption delays, metabolism, or individual variation. For educational use only.
+          </div>
+          <div className="text-gray-400 font-mono mt-6 text-xs">
+            Legend:
+          </div>
+          {regimens.map((reg, idx) => (
+            <div key={reg.id} className="text-gray-400 font-mono text-xs">
+              {reg.ether.hormone} — {reg.ether.name} ({reg.dose}mg)
+            </div>
+          ))}
+        </aside>
+        {/* Main content: Responsive graph area */}
+        <main className="flex-1 flex flex-col items-center justify-center p-0 m-0 h-screen bg-[#f6ecd9]">
+          <div ref={graphContainerRef} className="flex-1 w-full h-[calc(100vh-5rem)] max-w-full max-h-[calc(100vh-5rem)] flex flex-col items-center justify-center p-0 pt-2 pb-0 m-0 overflow-hidden" style={{ minHeight: 300 }}>
+            <div className="relative w-full h-full max-w-full max-h-full" style={{ height: "100%" }}>
+              <svg
+                width={width}
+                height={height}
+                className="bg-white rounded"
+                style={{ width: "100%", height: "100%", display: "block", background: "#f5ecd8" }}
+                onMouseMove={handleMouseMove}
+                onMouseLeave={handleMouseLeave}
               >
-                {yLabel}
-              </text>
-              {/* X axis grid and labels */}
-              {xTickVals.map((x, i) => (
-                <g key={i}>
-                  <line
-                    x1={getX(x)}
-                    y1={padding}
-                    x2={getX(x)}
-                    y2={height - padding}
-                    stroke="#444"
-                    strokeDasharray="2 4"
-                  />
-                  <text
-                    x={getX(x)}
-                    y={height - padding + 30}
-                    fill="#fff"
-                    fontSize={16}
-                    textAnchor="middle"
-                  >
-                    {x}
-                  </text>
-                </g>
-              ))}
-              {/* Axes */}
-              <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#fff" strokeWidth={2} />
-              <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="#fff" strokeWidth={2} />
-              {/* Injection markers */}
-              {injectionMarkers.map(marker => (
-                <g key={marker.day}>
-                  <line
-                    x1={marker.x}
-                    y1={padding}
-                    x2={marker.x}
-                    y2={height - padding}
-                    stroke="#fbbf24"
-                    strokeDasharray="4 4"
-                    strokeWidth={1.5}
-                    opacity={0.7}
-                  />
-                  <circle
-                    cx={marker.x}
-                    cy={height - padding}
-                    r={4}
-                    fill="#fbbf24"
-                    opacity={0.7}
-                  />
-                </g>
-              ))}
-              {/* Graph line */}
-              <polyline
-                fill="none"
-                stroke={selectedEther.hormone === "Testosterone" ? "#60a5fa" : "#f472b6"}
-                strokeWidth={4}
-                points={graphPoints}
-              />
-              {/* Hover marker and tooltip */}
-              {hoverIdx !== null && displayLevels[hoverIdx] !== undefined && levels[hoverIdx] !== undefined && (
-                <g>
-                  {/* Vertical hover line */}
-                  <line
-                    x1={getX(hoverIdx)}
-                    y1={padding}
-                    x2={getX(hoverIdx)}
-                    y2={height - padding}
-                    stroke="#fff"
-                    strokeDasharray="2 2"
-                    strokeWidth={2}
-                    opacity={0.7}
-                  />
-                  {/* Marker dot */}
-                  <circle
-                    cx={getX(hoverIdx)}
-                    cy={getY(displayLevels[hoverIdx])}
-                    r={8}
-                    fill="#fff"
-                    stroke={selectedEther.hormone === "Testosterone" ? "#60a5fa" : "#f472b6"}
-                    strokeWidth={4}
-                  />
-                  {/* Tooltip */}
-                  <rect
-                    x={getX(hoverIdx) - 70}
-                    y={getY(displayLevels[hoverIdx]) - 70}
-                    width={140}
-                    height={secondaryLevels && secondaryLevels[hoverIdx] !== undefined ? 70 : 48}
-                    rx={10}
-                    fill="#222"
-                    stroke="#fff"
-                    strokeWidth={1}
-                    opacity={0.95}
-                  />
-                  <text
-                    x={getX(hoverIdx)}
-                    y={getY(displayLevels[hoverIdx]) - (secondaryLevels && secondaryLevels[hoverIdx] !== undefined ? 50 : 40)}
-                    fill="#fff"
-                    fontSize={18}
-                    textAnchor="middle"
-                    fontWeight="bold"
-                  >
-                    day {levels[hoverIdx].day}
-                  </text>
-                  <text
-                    x={getX(hoverIdx)}
-                    y={getY(displayLevels[hoverIdx]) - (secondaryLevels && secondaryLevels[hoverIdx] !== undefined ? 28 : 18)}
-                    fill="#fff"
-                    fontSize={16}
-                    textAnchor="middle"
-                  >
-                    {displayLevels[hoverIdx].toFixed(0)} {tooltipUnit}
-                  </text>
-                  {secondaryLevels && secondaryLevels[hoverIdx] !== undefined && (
+                <rect x="0" y="0" width="100%" height="100%" fill="#f5ecd8" />
+                {/* Y axis grid and labels */}
+                {yTickVals.map((y, i) => (
+                  <g key={i}>
+                    <line
+                      x1={padding}
+                      y1={getY(y)}
+                      x2={width - padding}
+                      y2={getY(y)}
+                      stroke="#eee"
+                      strokeDasharray="2 4"
+                    />
                     <text
-                      x={getX(hoverIdx)}
-                      y={getY(displayLevels[hoverIdx]) - 8}
-                      fill="#fff"
-                      fontSize={14}
+                      x={padding - 10}
+                      y={getY(y) + 5}
+                      fill="#888"
+                      fontSize={16}
+                      textAnchor="end"
+                    >
+                      {y.toFixed(0)}
+                    </text>
+                  </g>
+                ))}
+                {/* Y axis label */}
+                <text
+                  x={padding - 50}
+                  y={padding + 10}
+                  fill="#222"
+                  fontSize={18}
+                  textAnchor="start"
+                  transform={`rotate(-90,${padding - 50},${padding + 10})`}
+                  style={{ fontWeight: "bold" }}
+                >
+                  Level
+                </text>
+                {/* X axis grid and labels */}
+                {xTickVals.map((x, i) => (
+                  <g key={i}>
+                    <line
+                      x1={getX(x, Math.max(...regimens.map(r => r.days)))}
+                      y1={padding}
+                      x2={getX(x, Math.max(...regimens.map(r => r.days)))}
+                      y2={height - padding}
+                      stroke="#eee"
+                      strokeDasharray="2 4"
+                    />
+                    <text
+                      x={getX(x, Math.max(...regimens.map(r => r.days)))}
+                      y={height - padding + 30}
+                      fill="#888"
+                      fontSize={16}
                       textAnchor="middle"
                     >
-                      {secondaryLevels[hoverIdx].toFixed(0)} {secondaryUnit}
+                      {x}
                     </text>
-                  )}
-                </g>
-              )}
-            </svg>
+                  </g>
+                ))}
+                {/* Axes */}
+                <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#222" strokeWidth={2} />
+                <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="#222" strokeWidth={2} />
+                {/* Graph lines for each regimen */}
+                {allGraphData.map((g, idx) => (
+                  <polyline
+                    key={g.id}
+                    fill="none"
+                    stroke={g.color}
+                    strokeWidth={4}
+                    points={g.displayLevels.map((v, i) => `${getX(i, g.days)},${getY(v)}`).join(" ")}
+                  />
+                ))}
+                {/* Hover marker and tooltip for all regimens at hovered day */}
+                {hover && (
+                  <g>
+                    {/* Vertical hover line */}
+                    <line
+                      x1={getX(hover.day, Math.max(...regimens.map(r => r.days)))}
+                      y1={padding}
+                      x2={getX(hover.day, Math.max(...regimens.map(r => r.days)))}
+                      y2={height - padding}
+                      stroke="#222"
+                      strokeDasharray="2 2"
+                      strokeWidth={2}
+                      opacity={0.7}
+                    />
+                    {/* Circles for each regimen at hovered day */}
+                    {allGraphData.map((g, idx) =>
+                      g.displayLevels[hover.day] !== undefined ? (
+                        <circle
+                          key={g.id}
+                          cx={getX(hover.day, g.days)}
+                          cy={getY(g.displayLevels[hover.day])}
+                          r={8}
+                          fill="#fff"
+                          stroke={g.color}
+                          strokeWidth={4}
+                        />
+                      ) : null
+                    )}
+                    {/* Tooltip box with all regimens' values at hovered day, positioned near mouse and never cut off */}
+                    {(() => {
+                      const tooltipWidth = 250;
+                      const tooltipHeight = 60 + 60 * allGraphData.length;
+                      let x = hover.mouseX + 20;
+                      let y = hover.mouseY - 20;
+                      if (x + tooltipWidth > width - 10) x = hover.mouseX - tooltipWidth - 20;
+                      if (x < 10) x = 10;
+                      if (y + tooltipHeight > height - 10) y = height - tooltipHeight - 10;
+                      if (y < 10) y = 10;
+                      return (
+                        <foreignObject
+                          x={x}
+                          y={y}
+                          width={tooltipWidth}
+                          height={tooltipHeight}
+                        >
+                          <div
+                            style={{
+                              background: '#fff',
+                              border: '1px solid #222',
+                              borderRadius: 10,
+                              padding: 14,
+                              opacity: 0.98,
+                              fontSize: 15,
+                              width: '100%',
+                              maxHeight: '100%',
+                              overflow: 'visible',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.07)'
+                            }}
+                          >
+                            <div style={{ fontWeight: 'bold', marginBottom: 10, textAlign: 'center', fontSize: 16 }}>day {hover.day}</div>
+                            {allGraphData.map((g, idx) =>
+                              g.displayLevels[hover.day] !== undefined ? (
+                                <div key={g.id} style={{ 
+                                  color: g.color, 
+                                  display: 'flex', 
+                                  flexDirection: 'column',
+                                  marginBottom: 16,
+                                  borderBottom: idx < allGraphData.length - 1 ? '1px solid #eee' : 'none',
+                                  paddingBottom: 10
+                                }}>
+                                  <div style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    marginBottom: 6
+                                  }}>
+                                    <span style={{ 
+                                      width: 14, 
+                                      height: 14, 
+                                      background: g.color, 
+                                      borderRadius: 7, 
+                                      display: 'inline-block', 
+                                      marginRight: 8
+                                    }}></span>
+                                    <span style={{ 
+                                      fontWeight: 600,
+                                      fontSize: 15,
+                                      wordBreak: 'break-word'
+                                    }}>{g.ether.hormone} — {g.ether.name}</span>
+                                  </div>
+                                  <div style={{
+                                    marginLeft: 22,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    flexWrap: 'wrap'
+                                  }}>
+                                    <span style={{ 
+                                      fontWeight: 500,
+                                      marginRight: 10,
+                                      fontSize: 16
+                                    }}>{g.displayLevels[hover.day].toFixed(0)} {g.tooltipUnit}</span>
+                                    {g.secondaryLevels && g.secondaryLevels[hover.day] !== undefined && (
+                                      <span style={{ 
+                                        color: '#555', 
+                                        fontSize: 14
+                                      }}>({g.secondaryLevels[hover.day].toFixed(0)} {g.secondaryUnit})</span>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : null
+                            )}
+                          </div>
+                        </foreignObject>
+                      );
+                    })()}
+                  </g>
+                )}
+              </svg>
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 } 
