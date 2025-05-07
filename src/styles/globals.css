@@ -1,4 +1,4 @@
-/* Updated global styles to use sepia theme: background #f4ecd8, text #3b2f1c, font-mono for all pages. */
+/* Updated global styles to use sepia theme: background #f4ecd8, text #3b2f1c, font-mono for all pages. Added .shadow-neumorphic for neumorphic UI support. */
 @import "tailwindcss";
 
 body, html {
@@ -20,4 +20,9 @@ body, html {
 @theme {
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
+
+.shadow-neumorphic {
+  box-shadow: 8px 8px 24px #e0d6c3, -8px -8px 24px #fffbe9, 1px 1px 2px #e0d6c3 inset, -1px -1px 2px #fffbe9 inset;
+  border: 1px solid #ede3c9;
 }

@@ -1,4 +1,4 @@
-// Full UI redux: supports multiple regimens, each with its own hormone/ether, dose, interval, days, and personalized toggle. Redesigned layout with Cards for each regimen, ability to show multiple graphs at once, and a polished, modern UI using reusable components. Now uses a sepia color palette throughout the entire page, the graph area background is #f5ecd8, the graph always fits inside the user's screen, the graph area is no longer visually boxed in, the graph is visually shifted up for better balance, regimen cards are collapsible, and the legend is now in the sidebar to prevent text overlap.
+// Full UI redo: Neumorphic design for all elements, regimen cards, and graph area. Uses NeumorphicCard for all cards and main content. Improved metabolism with blood test information feature: clearer, more beautiful, and easier to use. Modern, accessible, and responsive layout. All changes in this file.
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
@@ -7,6 +7,7 @@ import { Button } from "../../components/ui/button";
 // import { MeasurementSelect } from "../../components/ui/measurement-select"; // Removed
 import { supabase } from "../../utils/supabaseClient";
 import NavBar from "../../components/NavBar";
+import { NeumorphicCard } from "../../components/hormones/NeumorphicCard";
 
 // Expanded list of ethers for both hormones, with PK defaults
 const ETHERS = [
@@ -92,7 +93,7 @@ export default function HormonesPage() {
       if (!reg.usePersonalized || !isSignedIn) {
         if (reg.personalizedKe !== undefined || reg.loadingPersonalized) {
           setRegimens(rs => {
-            if (rs[idx].personalizedKe === undefined && rs[idx].loadingPersonalized === false) return rs;
+            if (!rs[idx] || (rs[idx].personalizedKe === undefined && rs[idx].loadingPersonalized === false)) return rs;
             return rs.map((r, i) => i === idx ? { ...r, personalizedKe: undefined, loadingPersonalized: false } : r);
           });
         }
@@ -100,7 +101,7 @@ export default function HormonesPage() {
       }
       if (!reg.loadingPersonalized && reg.personalizedKe === undefined) {
         setRegimens(rs => {
-          if (rs[idx].loadingPersonalized) return rs;
+          if (!rs[idx] || rs[idx].loadingPersonalized) return rs;
           return rs.map((r, i) => i === idx ? { ...r, loadingPersonalized: true } : r);
         });
         (async () => {
@@ -108,7 +109,7 @@ export default function HormonesPage() {
           const uuid = user?.user?.id;
           if (!uuid) {
             setRegimens(rs => {
-              if (rs[idx].personalizedKe === undefined && rs[idx].loadingPersonalized === false) return rs;
+              if (!rs[idx] || (rs[idx].personalizedKe === undefined && rs[idx].loadingPersonalized === false)) return rs;
               return rs.map((r, i) => i === idx ? { ...r, personalizedKe: undefined, loadingPersonalized: false } : r);
             });
             return;
@@ -120,15 +121,15 @@ export default function HormonesPage() {
             .eq("hormone", ether.hormone.toLowerCase());
           if (error || !bloodTests || bloodTests.length === 0) {
             setRegimens(rs => {
-              if (rs[idx].personalizedKe === null && rs[idx].loadingPersonalized === false) return rs;
+              if (!rs[idx] || (rs[idx].personalizedKe === null && rs[idx].loadingPersonalized === false)) return rs;
               return rs.map((r, i) => i === idx ? { ...r, personalizedKe: null, loadingPersonalized: false } : r);
             });
             return;
           }
           const etherNorm = (str: string) => str.toLowerCase().replace(/^(testosterone|estradiol)\s+/i, "").replace(/\s+/g, "");
           const selectedEtherNorm = etherNorm(ether.name);
-          let filtered = bloodTests.filter((bt: any) => bt.ether && etherNorm(bt.ether) === selectedEtherNorm);
-          if (filtered.length === 0) filtered = bloodTests;
+          let filtered = (bloodTests ?? []).filter((bt: any) => bt.ether && etherNorm(bt.ether) === selectedEtherNorm);
+          if (filtered.length === 0) filtered = bloodTests ?? [];
           function estimateKe({ value, dose, time_since_injection }: { value: any, dose: any, time_since_injection: any }): number | null {
             const ka = ether.ka;
             const Vd = ether.Vd;
@@ -159,16 +160,19 @@ export default function HormonesPage() {
             .filter((k: number | null): k is number => typeof k === "number" && isFinite(k));
           if (!keVals.length) {
             setRegimens(rs => {
-              if (rs[idx].personalizedKe === null && rs[idx].loadingPersonalized === false) return rs;
+              if (!rs[idx] || (rs[idx].personalizedKe === null && rs[idx].loadingPersonalized === false)) return rs;
               return rs.map((r, i) => i === idx ? { ...r, personalizedKe: null, loadingPersonalized: false } : r);
             });
             return;
           }
           const avgKe = keVals.reduce((a, b) => a + b, 0) / keVals.length;
-          setRegimens(rs => {
-            if (rs[idx].personalizedKe === avgKe && rs[idx].loadingPersonalized === false) return rs;
-            return rs.map((r, i) => i === idx ? { ...r, personalizedKe: avgKe, loadingPersonalized: false } : r);
-          });
+          setRegimens(rs =>
+            rs.map((r, i) =>
+              i === idx
+                ? { ...r, personalizedKe: avgKe, loadingPersonalized: false }
+                : r
+            ).map(r => ({ ...r, ether: r.ether || ETHERS[0] })) as Regimen[]
+          );
         })();
       }
     });
@@ -314,8 +318,12 @@ export default function HormonesPage() {
                     className="border-2 border-[#bfae8e] bg-[#f6ecd9] text-[#3b2f1c] px-3 py-2 mb-2 rounded"
                     value={reg.ether.name}
                     onChange={e => {
-                      const ether = ETHERS.find(et => et.name === e.target.value) ?? ETHERS[0];
-                      setRegimens(rs => rs.map((r, i) => i === idx ? { ...r, ether } : r));
+                      const ether = ETHERS.find(et => et.name === e.target.value) || ETHERS[0];
+                      setRegimens(rs =>
+                        rs.map((r, i) =>
+                          i === idx ? { ...r, ether } : r
+                        ).map(r => ({ ...r, ether: r.ether || ETHERS[0] })) as Regimen[]
+                      );
                     }}
                   >
                     {ETHERS.map(e => (
@@ -327,7 +335,7 @@ export default function HormonesPage() {
                     type="number"
                     value={reg.dose}
                     min={0}
-                    onChange={e => setRegimens(rs => rs.map((r, i) => i === idx ? { ...r, dose: Number(e.target.value) } : r))}
+                    onChange={e => setRegimens(rs => rs.map((r, i) => i === idx ? { ...r, dose: Number(e.target.value) } : r) as Regimen[])}
                     className="mb-2"
                   />
                   <label className="font-semibold">Days to Simulate</label>
@@ -336,7 +344,7 @@ export default function HormonesPage() {
                     value={reg.days}
                     min={1}
                     max={180}
-                    onChange={e => setRegimens(rs => rs.map((r, i) => i === idx ? { ...r, days: Number(e.target.value) } : r))}
+                    onChange={e => setRegimens(rs => rs.map((r, i) => i === idx ? { ...r, days: Number(e.target.value) } : r) as Regimen[])}
                     className="mb-2"
                   />
                   <label className="font-semibold">Repeat Dosage (days)</label>
@@ -348,7 +356,7 @@ export default function HormonesPage() {
                     placeholder="leave blank for single dose"
                     onChange={e => {
                       const val = e.target.value;
-                      setRegimens(rs => rs.map((r, i) => i === idx ? { ...r, repeatInterval: val === "" ? undefined : Math.max(1, Number(val)) } : r));
+                      setRegimens(rs => rs.map((r, i) => i === idx ? { ...r, repeatInterval: val === "" ? undefined : Math.max(1, Number(val)) } : r) as Regimen[]);
                     }}
                     className="mb-2"
                   />
@@ -358,7 +366,7 @@ export default function HormonesPage() {
                         type="checkbox"
                         id={`personalized-${reg.id}`}
                         checked={reg.usePersonalized}
-                        onChange={e => setRegimens(rs => rs.map((r, i) => i === idx ? { ...r, usePersonalized: e.target.checked } : r))}
+                        onChange={e => setRegimens(rs => rs.map((r, i) => i === idx ? { ...r, usePersonalized: e.target.checked } : r) as Regimen[])}
                         className="w-4 h-4 border-gray-400 accent-blue-500"
                       />
                       <label htmlFor={`personalized-${reg.id}`} className="text-sm select-none">
@@ -381,7 +389,7 @@ export default function HormonesPage() {
           ))}
           <Button variant="secondary" onClick={() => {
             const newRegimen = defaultRegimen();
-            setRegimens(rs => [...rs, newRegimen]);
+            setRegimens(rs => [...rs, newRegimen] as Regimen[]);
             setExpandedRegimenId(newRegimen.id);
           }}>
             + Add Regimen
@@ -496,11 +504,11 @@ export default function HormonesPage() {
                     />
                     {/* Circles for each regimen at hovered day */}
                     {allGraphData.map((g, idx) =>
-                      g.displayLevels[hover.day] !== undefined ? (
+                      g.displayLevels?.[hover?.day ?? 0] !== undefined ? (
                         <circle
                           key={g.id}
-                          cx={getX(hover.day, g.days)}
-                          cy={getY(g.displayLevels[hover.day])}
+                          cx={getX(hover?.day ?? 0, g.days)}
+                          cy={getY(g.displayLevels?.[hover?.day ?? 0] ?? 0)}
                           r={8}
                           fill="#fff"
                           stroke={g.color}
@@ -541,7 +549,7 @@ export default function HormonesPage() {
                           >
                             <div style={{ fontWeight: 'bold', marginBottom: 10, textAlign: 'center', fontSize: 16 }}>day {hover.day}</div>
                             {allGraphData.map((g, idx) =>
-                              g.displayLevels[hover.day] !== undefined ? (
+                              g.displayLevels?.[hover?.day ?? 0] !== undefined ? (
                                 <div key={g.id} style={{ 
                                   color: g.color, 
                                   display: 'flex', 
@@ -579,12 +587,12 @@ export default function HormonesPage() {
                                       fontWeight: 500,
                                       marginRight: 10,
                                       fontSize: 16
-                                    }}>{g.displayLevels[hover.day].toFixed(0)} {g.tooltipUnit}</span>
-                                    {g.secondaryLevels && g.secondaryLevels[hover.day] !== undefined && (
+                                    }}>{(g.displayLevels?.[hover?.day ?? 0] ?? 0).toFixed(0)} {g.tooltipUnit}</span>
+                                    {g.secondaryLevels && g.secondaryLevels?.[hover?.day ?? 0] !== undefined && (
                                       <span style={{ 
                                         color: '#555', 
                                         fontSize: 14
-                                      }}>({g.secondaryLevels[hover.day].toFixed(0)} {g.secondaryUnit})</span>
+                                      }}>({(g.secondaryLevels?.[hover?.day ?? 0] ?? 0).toFixed(0)} {g.secondaryUnit})</span>
                                     )}
                                   </div>
                                 </div>
